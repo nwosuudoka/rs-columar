@@ -1,0 +1,15 @@
+[package]
+name = "columnar"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+columnar_derive = { path = "../columnar_codegen/macro" }
+
+[lib]
+name = "columnar"
+path = "src/lib.rs"
+
+[build-dependencies]
+columnar_codegen = { path = "../columnar_codegen/codegen" }
+syn = { version = "2", features = ["full"] }

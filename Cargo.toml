@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "columnar",
+    "columnar_codegen/codegen",
+    "columnar_codegen/macro",
+]
+resolver = "3"
