@@ -1,2 +1,2 @@
 [workspace]
-members = ["codegen", "macro"]
+members = ["codegen", "macros"]

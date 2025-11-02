@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-columnar_derive = { path = "../columnar_codegen/macro" }
+columnar_derive = { path = "../columnar_codegen/macros" }
+serde = { version = "1", features = ["derive"] }
 
 [lib]
 name = "columnar"
@@ -12,4 +13,10 @@ path = "src/lib.rs"
 
 [build-dependencies]
 columnar_codegen = { path = "../columnar_codegen/codegen" }
-syn = { version = "2", features = ["full"] }
+syn = { version = "2", features = ["full", "extra-traits"] }
+quote = "1"
+proc-macro2 = "1"
+
+
+[dev-dependencies]
+tempfile = "3"

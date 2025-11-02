@@ -1,74 +1,178 @@
-use columnar_codegen::expand_simple_columnar;
-use std::{env, fs, path::PathBuf};
-use syn::{Item, Path, parse_file, punctuated::Punctuated, Token};
+use proc_macro2::Ident;
+use quote::{format_ident, quote};
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use syn::{Item, ItemStruct, parse_file};
+
+const INPUT_DIR: &str = "src/models";
+const OUTPUT_DIR: &str = "src/generated";
 
 fn main() {
-    // Locate the source file we want to expand.
-    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-    let source = manifest_dir.join("src/example.rs");
+    fs::create_dir_all(OUTPUT_DIR).unwrap();
 
-    println!("cargo:rerun-if-changed={}", source.display());
+    // Collect all model files
+    let model_files: Vec<PathBuf> = fs::read_dir(INPUT_DIR)
+        .unwrap()
+        .filter_map(|e| {
+            let p = e.ok()?.path();
+            if p.extension().and_then(|s| s.to_str()) == Some("rs") {
+                Some(p)
+            } else {
+                None
+            }
+        })
+        .collect();
 
-    // Read and parse the file.
-    let content =
-        fs::read_to_string(&source).expect("Could not read src/example.rs for SimpleColumnar codegen");
-    let syntax = parse_file(&content).expect("Failed to parse src/example.rs");
+    for file in &model_files {
+        let src = fs::read_to_string(file).unwrap();
+        let parsed = parse_file(&src).unwrap();
 
-    // Collect all structs in this file with #[derive(SimpleColumnar)]
-    let mut generated = Vec::new();
-    for item in syntax.items {
-        if let Item::Struct(ref s) = item {
-            for attr in &s.attrs {
-                if attr.path().is_ident("derive")
-                    && derives_simple_columnar(attr).unwrap_or(false)
-                {
-                    let derive_input = syn::DeriveInput {
-                        attrs: s.attrs.clone(),
-                        vis: s.vis.clone(),
-                        ident: s.ident.clone(),
-                        generics: s.generics.clone(),
-                        data: syn::Data::Struct(syn::DataStruct {
-                            struct_token: s.struct_token,
-                            fields: s.fields.clone(),
-                            semi_token: s.semi_token,
-                        }),
-                    };
-
-                    let tokens = expand_simple_columnar(&derive_input)
-                        .expect("SimpleColumnar expansion failed during build script");
-                    generated.push(tokens);
-                }
+        // find all struct definitions in the file
+        for item in parsed.items {
+            if let Item::Struct(s) = item {
+                generate_columnar_for_struct(&s, file);
             }
         }
+
+        println!("cargo:rerun-if-changed={}", file.display());
     }
 
-    let mut output = String::new();
-    if generated.is_empty() {
-        output.push_str("// No #[derive(SimpleColumnar)] structs found in src/example.rs\n");
-    } else {
-        for g in generated {
-            output.push_str(&g.to_string());
-            output.push('\n');
+    // Generate mod.rs for generated/
+    let mut mod_rs = String::new();
+    for entry in fs::read_dir(OUTPUT_DIR).unwrap() {
+        let entry = entry.unwrap();
+        let name = entry.file_name();
+        let name = name.to_str().unwrap();
+        if name.ends_with(".rs") && name != "mod.rs" {
+            let mod_name = name.trim_end_matches(".rs");
+            mod_rs.push_str(&format!("pub mod {};\n", mod_name));
         }
     }
-
-    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-    let expanded = out_dir.join("simple_columnar_expanded.rs");
-    fs::write(&expanded, &output).expect("Failed to write generated SimpleColumnar output");
-
-    // Also write a copy under columnar/generated/ for easy inspection in the repo.
-    let preview_dir = manifest_dir.join("generated");
-    fs::create_dir_all(&preview_dir).expect("Failed to create generated preview directory");
-    let preview_file = preview_dir.join("simple_columnar_expanded.rs");
-    fs::write(&preview_file, output).expect("Failed to write generated preview file");
-    println!(
-        "cargo:warning=SimpleColumnar preview written to {}",
-        preview_file.display()
-    );
+    let mod_rs_path = Path::new(OUTPUT_DIR).join("mod.rs");
+    fs::write(&mod_rs_path, mod_rs).unwrap();
+    format_with_rustfmt(&mod_rs_path);
 }
 
-fn derives_simple_columnar(attr: &syn::Attribute) -> syn::Result<bool> {
-    let paths: Punctuated<Path, Token![,]> =
-        attr.parse_args_with(Punctuated::parse_terminated)?;
-    Ok(paths.iter().any(|path| path.is_ident("SimpleColumnar")))
+fn generate_columnar_for_struct(s: &ItemStruct, file: &Path) {
+    let struct_name = &s.ident;
+    let column_struct = format_ident!("{}VecColumns", struct_name);
+    let module_path_idents = module_path_from_file(file);
+    let struct_path = quote! { crate::#(#module_path_idents::)*#struct_name };
+    let out_path = Path::new(OUTPUT_DIR).join(format!(
+        "{}_columns.rs",
+        struct_name.to_string().to_lowercase()
+    ));
+
+    // Collect field names & types
+    let fields = match &s.fields {
+        syn::Fields::Named(f) => &f.named,
+        _ => panic!("Only named structs are supported"),
+    };
+
+    let field_defs = fields.iter().map(|f| {
+        let name = f.ident.as_ref().unwrap();
+        let ty = &f.ty;
+        quote! { pub #name: crate::VecColumn<#ty>, }
+    });
+
+    let push_body = fields.iter().map(|f| {
+        let name = f.ident.as_ref().unwrap();
+        quote! { self.#name.push(&row.#name); }
+    });
+
+    let merge_body = fields.iter().map(|f| {
+        let name = f.ident.as_ref().unwrap();
+        quote! { self.#name.merge(other.#name); }
+    });
+
+    // Generate columnar struct code
+    let expanded = quote! {
+        #[derive(Default, Debug)]
+        pub struct #column_struct {
+            #(#field_defs)*
+        }
+
+        impl crate::ColumnBundle<#struct_path> for #column_struct {
+            fn push(&mut self, row: &#struct_path) {
+                #(#push_body)*
+            }
+
+            fn merge(&mut self, other: Self) {
+                #(#merge_body)*
+            }
+        }
+
+        impl crate::Columnar for #struct_path {
+            type Columns = #column_struct;
+        }
+    };
+
+    fs::write(&out_path, expanded.to_string()).unwrap();
+    format_with_rustfmt(&out_path);
+}
+
+fn module_path_from_file(file: &Path) -> Vec<Ident> {
+    fn to_snake_case(name: &str) -> String {
+        let mut snake = String::new();
+        let mut chars = name.chars().peekable();
+        let mut has_prev = false;
+
+        while let Some(ch) = chars.next() {
+            if ch.is_uppercase() {
+                if has_prev {
+                    if let Some(next) = chars.peek() {
+                        if next.is_lowercase() || next.is_numeric() {
+                            snake.push('_');
+                        }
+                    }
+                }
+                for lower in ch.to_lowercase() {
+                    snake.push(lower);
+                }
+                has_prev = true;
+            } else if matches!(ch, '-' | ' ') {
+                if has_prev {
+                    snake.push('_');
+                }
+                has_prev = false;
+            } else {
+                snake.push(ch);
+                has_prev = ch.is_alphanumeric();
+            }
+        }
+        snake
+    }
+
+    let relative = file.strip_prefix("src").unwrap_or(file);
+    relative
+        .iter()
+        .filter_map(|component| {
+            let raw = component.to_str()?;
+            if raw == "mod.rs" {
+                return None;
+            }
+            let without_ext = raw.strip_suffix(".rs").unwrap_or(raw);
+            if without_ext.is_empty() {
+                None
+            } else {
+                Some(format_ident!("{}", to_snake_case(without_ext)))
+            }
+        })
+        .collect()
+}
+
+fn format_with_rustfmt(path: &Path) {
+    let Some(path_str) = path.to_str() else {
+        return;
+    };
+
+    match Command::new("rustfmt")
+        .args(["--edition", "2024", path_str])
+        .status()
+    {
+        Ok(status) if status.success() => {}
+        Ok(_) => println!("cargo:warning=rustfmt failed on {}", path.display()),
+        Err(_) => println!("cargo:warning=rustfmt not found; skipping formatting"),
+    }
 }
