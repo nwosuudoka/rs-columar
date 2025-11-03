@@ -1,6 +1,5 @@
+use crate::encoding::{self, streaming::StreamingEncoder};
 use std::{any::TypeId, collections::HashMap};
-
-use crate::encoding::streaming::StreamingEncoder;
 
 #[derive(Default)]
 pub struct EncoderFactory {
@@ -32,4 +31,11 @@ impl EncoderFactory {
                 .map(|boxed| *boxed)
         })
     }
+}
+
+pub fn default_factory() -> EncoderFactory {
+    let mut f = EncoderFactory::new();
+    f.register::<i64>(|| Box::new(encoding::DeltaStreamEncoder::new()));
+    f.register::<u64>(|| Box::new(encoding::FixedWidthStreamEncoder));
+    f
 }

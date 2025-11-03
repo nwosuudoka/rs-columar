@@ -1,10 +1,11 @@
 //! Positions
+use columnar_derive::SimpleColumnar;
 use serde::de::Error as SerdeError;
 use serde::{self, Deserialize, Deserializer, Serialize};
 use std::fmt::Display;
 use std::str::FromStr;
 
-#[derive(Debug, Serialize, Deserialize, Default, PartialEq)]
+#[derive(SimpleColumnar, Debug, Serialize, Deserialize, Default, PartialEq)]
 pub struct Position {
     // // 16 bytes
     // #[serde(skip_deserializing, default)]

@@ -5,6 +5,7 @@ edition = "2024"
 
 [lib]
 proc-macro = true
+path = "src/lib.rs"
 
 [dependencies]
 columnar_codegen = { path = "../codegen" }

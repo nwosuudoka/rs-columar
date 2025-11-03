@@ -1,0 +1,15 @@
+[package]
+name = "columnar_builder"
+version = "0.1.0"
+edition = "2024"
+description = "cli tools to run Columnar code generation manually"
+
+[[bin]]
+name = "columnar_codegen"
+path = "src/main.rs"
+
+[dependencies]
+syn = { version = "2", features = ["full", "extra-traits"] }
+quote = "1"
+proc-macro2 = "1"
+columnar_codegen = { path = "../codegen" }

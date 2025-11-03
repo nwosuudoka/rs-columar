@@ -3,5 +3,6 @@ members = [
     "columnar",
     "columnar_codegen/codegen",
     "columnar_codegen/macros",
+    "columnar_codegen/builder",
 ]
 resolver = "3"

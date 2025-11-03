@@ -1,4 +1,4 @@
-#[derive(Default, Debug)]
+#[derive(Debug, Default)]
 pub struct PositionVecColumns {
     pub rcid: crate::VecColumn<i32>,
     pub industry_id: crate::VecColumn<u16>,
@@ -43,52 +43,52 @@ pub struct PositionVecColumns {
     pub description: crate::VecColumn<String>,
     pub raw_title: crate::VecColumn<String>,
 }
-impl crate::ColumnBundle<crate::models::position::Position> for PositionVecColumns {
+impl crate::SimpleColumnBundle<crate::models::position::Position> for PositionVecColumns {
     fn push(&mut self, row: &crate::models::position::Position) {
-        self.rcid.push(&row.rcid);
-        self.industry_id.push(&row.industry_id);
-        self.company_id.push(&row.company_id);
-        self.rics_k400_index.push(&row.rics_k400_index);
-        self.rics_k50_index.push(&row.rics_k50_index);
-        self.rics_k10_index.push(&row.rics_k10_index);
-        self.prev_rcid.push(&row.prev_rcid);
-        self.next_rcid.push(&row.next_rcid);
-        self.start_index.push(&row.start_index);
-        self.end_index.push(&row.end_index);
-        self.next_start_index.push(&row.next_start_index);
-        self.prev_end_index.push(&row.prev_end_index);
-        self.weight.push(&row.weight);
-        self.sample_weight.push(&row.sample_weight);
-        self.inflow_weight.push(&row.inflow_weight);
-        self.outflow_weight.push(&row.outflow_weight);
-        self.full_time_prob.push(&row.full_time_prob);
-        self.multiplicator.push(&row.multiplicator);
-        self.inflation.push(&row.inflation);
+        self.rcid.push(&row.rcid.clone());
+        self.industry_id.push(&row.industry_id.clone());
+        self.company_id.push(&row.company_id.clone());
+        self.rics_k400_index.push(&row.rics_k400_index.clone());
+        self.rics_k50_index.push(&row.rics_k50_index.clone());
+        self.rics_k10_index.push(&row.rics_k10_index.clone());
+        self.prev_rcid.push(&row.prev_rcid.clone());
+        self.next_rcid.push(&row.next_rcid.clone());
+        self.start_index.push(&row.start_index.clone());
+        self.end_index.push(&row.end_index.clone());
+        self.next_start_index.push(&row.next_start_index.clone());
+        self.prev_end_index.push(&row.prev_end_index.clone());
+        self.weight.push(&row.weight.clone());
+        self.sample_weight.push(&row.sample_weight.clone());
+        self.inflow_weight.push(&row.inflow_weight.clone());
+        self.outflow_weight.push(&row.outflow_weight.clone());
+        self.full_time_prob.push(&row.full_time_prob.clone());
+        self.multiplicator.push(&row.multiplicator.clone());
+        self.inflation.push(&row.inflation.clone());
         self.total_compensation_ratio
-            .push(&row.total_compensation_ratio);
-        self.full_time_hours.push(&row.full_time_hours);
+            .push(&row.total_compensation_ratio.clone());
+        self.full_time_hours.push(&row.full_time_hours.clone());
         self.estimated_us_log_salary
-            .push(&row.estimated_us_log_salary);
-        self.f_prob.push(&row.f_prob);
-        self.white_prob.push(&row.white_prob);
-        self.multiple_prob.push(&row.multiple_prob);
-        self.black_prob.push(&row.black_prob);
-        self.api_prob.push(&row.api_prob);
-        self.hispanic_prob.push(&row.hispanic_prob);
-        self.native_prob.push(&row.native_prob);
-        self.role_v3_index.push(&row.role_v3_index);
-        self.state.push(&row.state);
-        self.msa.push(&row.msa);
-        self.mapped_role.push(&row.mapped_role);
-        self.country.push(&row.country);
-        self.region.push(&row.region);
-        self.seniority.push(&row.seniority);
-        self.highest_degree.push(&row.highest_degree);
-        self.internal_outflow.push(&row.internal_outflow);
-        self.internal_inflow.push(&row.internal_inflow);
-        self.mapped_skills_v3.push(&row.mapped_skills_v3);
-        self.description.push(&row.description);
-        self.raw_title.push(&row.raw_title);
+            .push(&row.estimated_us_log_salary.clone());
+        self.f_prob.push(&row.f_prob.clone());
+        self.white_prob.push(&row.white_prob.clone());
+        self.multiple_prob.push(&row.multiple_prob.clone());
+        self.black_prob.push(&row.black_prob.clone());
+        self.api_prob.push(&row.api_prob.clone());
+        self.hispanic_prob.push(&row.hispanic_prob.clone());
+        self.native_prob.push(&row.native_prob.clone());
+        self.role_v3_index.push(&row.role_v3_index.clone());
+        self.state.push(&row.state.clone());
+        self.msa.push(&row.msa.clone());
+        self.mapped_role.push(&row.mapped_role.clone());
+        self.country.push(&row.country.clone());
+        self.region.push(&row.region.clone());
+        self.seniority.push(&row.seniority.clone());
+        self.highest_degree.push(&row.highest_degree.clone());
+        self.internal_outflow.push(&row.internal_outflow.clone());
+        self.internal_inflow.push(&row.internal_inflow.clone());
+        self.mapped_skills_v3.push(&row.mapped_skills_v3.clone());
+        self.description.push(&row.description.clone());
+        self.raw_title.push(&row.raw_title.clone());
     }
     fn merge(&mut self, other: Self) {
         self.rcid.merge(other.rcid);
@@ -137,6 +137,6 @@ impl crate::ColumnBundle<crate::models::position::Position> for PositionVecColum
         self.raw_title.merge(other.raw_title);
     }
 }
-impl crate::Columnar for crate::models::position::Position {
+impl crate::SimpleColumnar for crate::models::position::Position {
     type Columns = PositionVecColumns;
 }

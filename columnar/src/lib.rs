@@ -1,14 +1,12 @@
 pub mod encoding;
-pub mod example;
 pub mod generated;
 pub mod models;
 
+use crate::encoding::streaming::StreamingEncoder;
 pub use columnar_derive::{Columnar, SimpleColumnar};
 use core::fmt;
-use std::any::TypeId;
-use std::collections::HashMap;
 use std::fs::File;
-use std::io::{self, BufWriter, Write};
+use std::io::{self, BufWriter};
 use std::{default::Default, path::PathBuf};
 
 pub trait Columnar: Sized {
@@ -28,6 +26,40 @@ pub trait ColumnBundle<Row>: Default {
     fn merge(&mut self, other: Self);
     fn set_chunk_size(&mut self, n: usize) {
         let _ = n;
+    }
+}
+
+pub trait SimpleColumnBundle<Row>: Default {
+    fn push(&mut self, row: &Row);
+    fn merge(&mut self, other: Self);
+}
+
+pub trait StreamingColumnBundle<Row>: Default {
+    fn push(&mut self, row: &Row);
+    fn merge(&mut self, other: Self);
+}
+
+pub trait SimpleColumnar: Sized {
+    type Columns: SimpleColumnBundle<Self> + Default;
+
+    fn to_simple_columns(rows: &[Self]) -> Self::Columns {
+        let mut cols = Self::Columns::default();
+        for r in rows {
+            cols.push(r);
+        }
+        cols
+    }
+}
+
+pub trait StreamingColumnar: Sized {
+    type Columns: StreamingColumnBundle<Self> + Default;
+
+    fn to_streaming_columns(rows: &[Self]) -> Self::Columns {
+        let mut cols = Self::Columns::default();
+        for r in rows {
+            cols.push(r);
+        }
+        cols
     }
 }
 
@@ -135,124 +167,6 @@ impl<T> StreamColumn<T> {
     }
 }
 
-/// Trait for streaming encoders: stateful, incremental encoders that
-/// can write data as it arrives.
-pub trait StreamingEncoder<T>: Send + Sync {
-    fn begin_stream(&self, writer: &mut dyn Write) -> io::Result<()>;
-    fn encode_value(&self, v: &T, writer: &mut dyn Write) -> io::Result<()>;
-    fn end_stream(&self, writer: &mut dyn Write) -> io::Result<()>;
-}
-
-/// Common built-in encoders
-pub mod encoders {
-    use super::StreamingEncoder;
-    use std::io::Write;
-
-    /// Writes each value as fixed-width binary (e.g., 8 bytes for u64).
-    pub struct FixedWidthStreamEncoder;
-
-    impl<T: Copy> StreamingEncoder<T> for FixedWidthStreamEncoder {
-        fn begin_stream(&self, _writer: &mut dyn Write) -> std::io::Result<()> {
-            Ok(())
-        }
-        fn encode_value(&self, v: &T, writer: &mut dyn Write) -> std::io::Result<()> {
-            let bytes = unsafe {
-                std::slice::from_raw_parts((v as *const T) as *const u8, std::mem::size_of::<T>())
-            };
-            writer.write_all(bytes)
-        }
-        fn end_stream(&self, _writer: &mut dyn Write) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-
-    /// Delta encoding for monotonic integers.
-    pub struct DeltaStreamEncoder {
-        prev: std::sync::Mutex<Option<i64>>,
-    }
-
-    impl Default for DeltaStreamEncoder {
-        fn default() -> Self {
-            Self {
-                prev: std::sync::Mutex::new(None),
-            }
-        }
-    }
-
-    impl DeltaStreamEncoder {
-        pub fn new() -> Self {
-            Self::default()
-        }
-    }
-
-    impl StreamingEncoder<i64> for DeltaStreamEncoder {
-        fn begin_stream(&self, _writer: &mut dyn Write) -> std::io::Result<()> {
-            Ok(())
-        }
-
-        fn encode_value(&self, v: &i64, writer: &mut dyn Write) -> std::io::Result<()> {
-            let mut guard = self.prev.lock().unwrap();
-            let delta = match *guard {
-                None => *v,
-                Some(prev) => *v - prev,
-            };
-            writer.write_all(&delta.to_le_bytes())?;
-            *guard = Some(*v);
-            Ok(())
-        }
-
-        fn end_stream(&self, _writer: &mut dyn Write) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-}
-
-//
-// ===========================================================
-//  5️⃣ ENCODER FACTORY (OPTIONAL PLUGGABLE REGISTRY)
-// ===========================================================
-//
-
-#[derive(Default)]
-pub struct EncoderFactory {
-    encoders: HashMap<TypeId, Box<dyn Fn() -> Box<dyn std::any::Any + Send + Sync>>>,
-}
-
-impl EncoderFactory {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn register<T: 'static>(
-        &mut self,
-        f: impl Fn() -> Box<dyn crate::StreamingEncoder<T>> + 'static,
-    ) {
-        self.encoders.insert(
-            TypeId::of::<T>(),
-            Box::new(move || {
-                let enc = f();
-                Box::new(enc) as Box<dyn std::any::Any + Send + Sync>
-            }),
-        );
-    }
-
-    pub fn get<T: 'static>(&self) -> Option<Box<dyn crate::StreamingEncoder<T>>> {
-        self.encoders.get(&TypeId::of::<T>()).and_then(|f| {
-            f().downcast::<Box<dyn crate::StreamingEncoder<T>>>()
-                .ok()
-                .map(|boxed| *boxed)
-        })
-    }
-}
-
-/// Returns a global factory with sensible defaults.
-pub fn default_factory() -> EncoderFactory {
-    let mut f = EncoderFactory::new();
-    f.register::<i64>(|| Box::new(encoders::DeltaStreamEncoder::new()));
-    f.register::<u64>(|| Box::new(encoders::FixedWidthStreamEncoder));
-    f
-}
-
 //
 // ===========================================================
 //  6️⃣ TESTS (Quick Validation)
@@ -261,6 +175,8 @@ pub fn default_factory() -> EncoderFactory {
 
 #[cfg(test)]
 mod tests {
+    use crate::encoding::FixedWidthStreamEncoder;
+
     use super::*;
 
     #[test]
@@ -279,8 +195,7 @@ mod tests {
     #[test]
     fn test_stream_column_write() {
         let tmp = tempfile::NamedTempFile::new().unwrap();
-        let mut col =
-            StreamColumn::new(tmp.path(), Box::new(encoders::FixedWidthStreamEncoder)).unwrap();
+        let mut col = StreamColumn::new(tmp.path(), Box::new(FixedWidthStreamEncoder)).unwrap();
         for i in 0..10u64 {
             col.push(&i).unwrap();
         }

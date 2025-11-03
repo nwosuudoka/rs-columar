@@ -8,3 +8,7 @@ proc-macro-crate = "3.4.0"
 proc-macro2 = "1.0"
 quote = "1.0"
 syn = { version = "2.0.108", features = ["full"] }
+
+[lib]
+path = "src/lib.rs"
+name = "columnar_codegen"

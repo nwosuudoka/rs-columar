@@ -1,9 +1,12 @@
 use crate::{attr, fields::FieldSpec, pathing};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-use syn::{spanned::Spanned, Data, DeriveInput, Fields, Result};
+use syn::{Data, DeriveInput, Fields, Result, spanned::Spanned};
 
-pub fn expand(input: &DeriveInput) -> Result<TokenStream> {
+pub fn expand(
+    input: &DeriveInput,
+    maybe_quality_path: Option<proc_macro2::TokenStream>,
+) -> Result<TokenStream> {
     let runtime = pathing::runtime_path()?;
     let struct_attrs = attr::parse_struct_attrs(&input.attrs)?;
 
@@ -18,14 +21,14 @@ pub fn expand(input: &DeriveInput) -> Result<TokenStream> {
                 return Err(syn::Error::new_spanned(
                     &input.ident,
                     "Columnar requires structs with named fields",
-                ))
+                ));
             }
         },
         _ => {
             return Err(syn::Error::new_spanned(
                 &input.ident,
                 "Columnar can only be derived for structs",
-            ))
+            ));
         }
     };
 
@@ -36,7 +39,13 @@ pub fn expand(input: &DeriveInput) -> Result<TokenStream> {
         })?;
         let field_ty = field.ty.clone();
         let attrs = attr::parse_field_attrs(&field.attrs)?;
-        let column_ident = format_ident!("{}", attrs.rename.clone().unwrap_or_else(|| field_ident.to_string()));
+        let column_ident = format_ident!(
+            "{}",
+            attrs
+                .rename
+                .clone()
+                .unwrap_or_else(|| field_ident.to_string())
+        );
 
         specs.push(FieldSpec {
             field_ident,
@@ -113,12 +122,13 @@ pub fn expand(input: &DeriveInput) -> Result<TokenStream> {
         quote! {}
     };
 
+    let row_path = maybe_quality_path.unwrap_or_else(|| quote! { #row_ident});
     Ok(quote! {
         #struct_decl_if_needed
         #chunk_size_impl
 
-        impl #runtime::ColumnBundle<#row_ident> for #columns_ident {
-            fn push(&mut self, row: &#row_ident) {
+        impl #runtime::ColumnBundle<#row_path> for #columns_ident {
+            fn push(&mut self, row: &#row_path) {
                 #(#push_body)*
             }
 
@@ -131,7 +141,7 @@ pub fn expand(input: &DeriveInput) -> Result<TokenStream> {
             }
         }
 
-        impl #runtime::Columnar for #row_ident {
+        impl #runtime::Columnar<#runtime::modes::Chunked> for #row_path {
             type Columns = #columns_ident;
         }
     })

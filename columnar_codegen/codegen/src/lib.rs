@@ -1,16 +1,11 @@
 pub mod attr;
-pub mod fields;
-mod pathing;
 mod columnar;
+pub mod fields;
+mod generate;
+mod pathing;
 mod simple;
+mod streaming;
 
-use proc_macro2::TokenStream;
-use syn::DeriveInput;
-
-pub fn expand_columnar(input: &DeriveInput) -> syn::Result<TokenStream> {
-    columnar::expand(input)
-}
-
-pub fn expand_simple_columnar(input: &DeriveInput) -> syn::Result<TokenStream> {
-    simple::expand(input)
-}
+pub use columnar::expand as expand_columnar;
+pub use simple::expand as expand_simple_columnar;
+pub use streaming::expand as expand_streaming_columnar;
