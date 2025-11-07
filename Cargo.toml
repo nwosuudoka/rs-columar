@@ -1,8 +1,9 @@
 [workspace]
 members = [
-    "columnar",
-    "columnar_codegen/codegen",
-    "columnar_codegen/macros",
-    "columnar_codegen/builder",
+    "indexing/columnar",
+    "indexing/columnar_codegen/codegen",
+    "indexing/columnar_codegen/macros",
+    "indexing/columnar_codegen/builder",
+    "indexing/toolkit/",
 ]
 resolver = "3"
