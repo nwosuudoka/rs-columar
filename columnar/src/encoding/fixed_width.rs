@@ -9,7 +9,7 @@ impl<T: Copy> StreamingEncoder<T> for FixedWidthStreamEncoder {
     fn begin_stream(&self, _writer: &mut dyn Write) -> std::io::Result<()> {
         Ok(())
     }
-    fn encode_value(&self, v: &T, writer: &mut dyn Write) -> std::io::Result<()> {
+    fn encode_value(&self, v: &T, _: usize, writer: &mut dyn Write) -> std::io::Result<()> {
         let bytes = unsafe {
             std::slice::from_raw_parts((v as *const T) as *const u8, std::mem::size_of::<T>())
         };

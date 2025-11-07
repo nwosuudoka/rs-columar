@@ -1,4 +1,6 @@
-use syn::{Attribute, LitInt, LitStr, Result};
+use std::path;
+
+use syn::{Attribute, LitBool, LitInt, LitStr, Result};
 
 #[derive(Debug, Clone, Default)]
 pub struct StructAttrs {
@@ -13,6 +15,10 @@ pub struct FieldAttrs {
     pub skip: bool,
     pub encoder: Option<String>, // e.g. "delta", "fixed", "dict"
     pub path: Option<String>,    // optional per field override path
+
+    pub index: bool,
+    pub index_path: Option<String>,
+    pub index_type: Option<String>,
 }
 
 pub fn parse_struct_attrs(attrs: &[Attribute]) -> Result<StructAttrs> {
@@ -76,6 +82,26 @@ pub fn parse_field_attrs(attrs: &[Attribute]) -> Result<FieldAttrs> {
             if m.path.is_ident("path") {
                 let lit: LitStr = m.value()?.parse()?;
                 out.path = Some(lit.value());
+                return Ok(());
+            }
+
+            if m.path.is_ident("index") {
+                if let Ok(lit) = m.value() {
+                    let val: LitBool = lit.parse()?;
+                    out.index = val.value;
+                } else {
+                    out.index = true;
+                }
+                return Ok(());
+            }
+            if m.path.is_ident("index_type") {
+                let lit: LitStr = m.value()?.parse()?;
+                out.index_type = Some(lit.value());
+                return Ok(());
+            }
+            if m.path.is_ident("index_path") {
+                let lit: LitStr = m.value()?.parse()?;
+                out.index_path = Some(lit.value());
                 return Ok(());
             }
 

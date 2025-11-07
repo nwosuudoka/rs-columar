@@ -26,7 +26,7 @@ impl StreamingEncoder<i64> for DeltaStreamEncoder {
         Ok(())
     }
 
-    fn encode_value(&self, v: &i64, writer: &mut dyn Write) -> io::Result<()> {
+    fn encode_value(&self, v: &i64, _: usize, writer: &mut dyn Write) -> io::Result<()> {
         let mut guard = self.prev.lock().unwrap();
         let delta = match *guard {
             None => *v,

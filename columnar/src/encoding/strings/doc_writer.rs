@@ -15,10 +15,7 @@ impl Default for DocWriter {
 }
 
 impl DocWriter {
-    pub fn write<W>(&mut self, tokens: &[u64], writer: &mut W) -> io::Result<usize>
-    where
-        W: Write,
-    {
+    pub fn write_dyn(&self, tokens: &[u64], writer: &mut dyn Write) -> io::Result<usize> {
         if tokens.is_empty() {
             return Ok(0);
         }
@@ -74,5 +71,12 @@ impl DocWriter {
         }
 
         Ok(data_size + entries_size + DOC_HEADER_SIZE)
+    }
+
+    pub fn write<W>(&self, tokens: &[u64], writer: &mut W) -> io::Result<usize>
+    where
+        W: Write,
+    {
+        self.write_dyn(tokens, writer)
     }
 }

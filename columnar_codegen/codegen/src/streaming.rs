@@ -1,7 +1,10 @@
-use crate::{attr, generate, pathing};
+use crate::{
+    attr::{self, StructAttrs},
+    generate, pathing,
+};
 use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote};
-use syn::{Data, DeriveInput, Fields, Result};
+use syn::{Data, DeriveInput, Field, Fields, Result};
 
 pub fn expand(
     input: &DeriveInput,
@@ -31,23 +34,24 @@ pub fn expand(
         }
     };
 
-    let mut specs = Vec::<generate::FieldSpec>::new();
-    for f in fields {
-        let field_ident = f.ident.unwrap();
-        let fattrs = attr::parse_field_attrs(&f.attrs)?;
-        let field_ty = f.ty;
-        let col_name = fattrs
-            .rename
-            .clone()
-            .unwrap_or_else(|| field_ident.to_string());
-        let column_ident = format_ident!("{}", col_name);
-        specs.push(generate::FieldSpec {
-            field_ident: field_ident.clone(),
-            field_ty,
-            column_ident: column_ident.into(),
-            fattrs,
-        });
-    }
+    // let mut specs = Vec::<generate::FieldSpec>::new();
+    // for f in fields {
+    //     let field_ident = f.ident.unwrap();
+    //     let fattrs = attr::parse_field_attrs(&f.attrs)?;
+    //     let field_ty = f.ty;
+    //     let col_name = fattrs
+    //         .rename
+    //         .clone()
+    //         .unwrap_or_else(|| field_ident.to_string());
+    //     let column_ident = format_ident!("{}", col_name);
+    //     specs.push(generate::FieldSpec {
+    //         field_ident: field_ident.clone(),
+    //         field_ty,
+    //         column_ident: column_ident.into(),
+    //         fattrs,
+    //     });
+    // }
+    let specs = get_specs(&fields);
 
     let backend_ty_for = |fs: &generate::FieldSpec| {
         let ty = &fs.field_ty;
@@ -89,21 +93,52 @@ pub fn expand(
             quote! { #rel_path }
         };
 
+        // let index_expr = if f.fattrs.index {
+        //     let index_type = f.fattrs.index_type.as_deref().unwrap();
+        //     let rel_index_path = format!("{}/{}.idx", struct_name, field_name);
+        //     let index_path_expr = if let Some(index_path) = &f.fattrs.index_path {
+        //         quote! { #index_path }
+        //     } else if let Some(base) = &sattr.base_path {
+        //         let joined = format!("{}/{}", base.trim_end_matches('/'), rel_index_path);
+        //         quote! { #joined }
+        //     } else {
+        //         quote! { #rel_index_path }
+        //     };
+
+        //     match index_type {
+        //         "doc_index" => quote! {
+        //             Some(Box::new(#rt::indexing::DocIndex::new(#index_path_expr)) as Box<dyn #rt::FieldIndex<#ty>>)
+        //         },
+        //         "categorical" => quote! {
+        //             Some(Box::new(#rt::indexing::Categorial::new(#index_path_expr)) as Box<dyn #rt::FieldIndex<#ty>>)
+        //         },
+        //         _ =>
+        //             quote! {
+        //                 compile_error!("Unknown index type")
+        //              }
+        //     }
+        // } else {
+        //     quote! { None }
+        // };
+        let index_expr = get_index_expr(f, &struct_name, &field_name, sattr.clone(), rt.clone());
+
         // Conditionally add pool
         if needs_pool {
             quote! {
                 #ci: #rt::StreamColumn::new(
                     #path_expr,
-                    Box::new(#encoder_expr(pool.clone())),
                     pool.clone(),
+                    Box::new(#encoder_expr(pool.clone())),
+                    #index_expr
                 ).unwrap(),
             }
         } else {
             quote! {
                 #ci: #rt::StreamColumn::new(
                     #path_expr,
-                    Box::new(#encoder_expr()),
                     #rt::SmartBufferPool::default(),
+                    Box::new(#encoder_expr()),
+                    #index_expr
                 ).unwrap(),
             }
         }
@@ -166,4 +201,63 @@ pub fn expand(
         #impl_row
         #impl_filtered
     })
+}
+
+fn get_specs(fields: &[Field]) -> Vec<generate::FieldSpec> {
+    fields
+        .iter()
+        .map(|f| {
+            let field_ident = f.ident.clone().unwrap();
+            let fattrs = attr::parse_field_attrs(&f.attrs).unwrap();
+            let field_ty = f.ty.clone();
+            let col_name = fattrs
+                .rename
+                .clone()
+                .unwrap_or_else(|| field_ident.to_string());
+            let column_ident = format_ident!("{}", col_name);
+            generate::FieldSpec {
+                field_ident: field_ident.clone(),
+                field_ty,
+                column_ident: column_ident.into(),
+                fattrs,
+            }
+        })
+        .collect::<Vec<_>>()
+}
+
+fn get_index_expr(
+    f: &generate::FieldSpec,
+    struct_name: &str,
+    field_name: &str,
+    sattr: StructAttrs,
+    rt: syn::Path,
+) -> TokenStream {
+    if f.fattrs.index {
+        let index_type = f.fattrs.index_type.as_deref().unwrap();
+        let rel_index_path = format!("{}/{}.idx", struct_name, field_name);
+        let index_path_expr = if let Some(index_path) = &f.fattrs.index_path {
+            quote! { #index_path }
+        } else if let Some(base) = &sattr.base_path {
+            let joined = format!("{}/{}", base.trim_end_matches('/'), rel_index_path);
+            quote! { #joined }
+        } else {
+            quote! { #rel_index_path }
+        };
+
+        let ty = &f.field_ty;
+
+        match index_type {
+            "doc_index" => quote! {
+                Some(Box::new(#rt::indexing::DocIndex::new(#index_path_expr)) as Box<dyn #rt::FieldIndex<#ty>>)
+            },
+            "categorical" => quote! {
+                Some(Box::new(#rt::indexing::Categorial::new(#index_path_expr)) as Box<dyn #rt::FieldIndex<#ty>>)
+            },
+            _ => quote! {
+            compile_error!("Unknown index type")
+            },
+        }
+    } else {
+        quote! { None }
+    }
 }

@@ -94,7 +94,7 @@ where
         Ok(())
     }
 
-    fn encode_value(&self, v: &T, _: &mut dyn std::io::Write) -> std::io::Result<()> {
+    fn encode_value(&self, v: &T, _: usize, _: &mut dyn std::io::Write) -> std::io::Result<()> {
         let mut guard = self.state.lock().unwrap();
         let state = guard.as_mut().unwrap();
         state.min = state.min.min(*v);
