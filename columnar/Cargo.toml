@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 columnar_derive = { path = "../columnar_codegen/macros" }
 serde = { version = "1", features = ["derive"] }
+tempfile = "3.23.0"
 
 [lib]
 name = "columnar"

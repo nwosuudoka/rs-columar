@@ -1,7 +1,8 @@
-use columnar_derive::SimpleColumnar;
+use columnar_derive::ColumnarAttrs;
 
-#[derive(SimpleColumnar)]
+#[derive(ColumnarAttrs)]
+#[columnar(base_path = "data/out")]
 pub struct Person {
+    #[columnar(encoder = "bitpack")]
     pub id: u64,
-    pub name: String,
 }

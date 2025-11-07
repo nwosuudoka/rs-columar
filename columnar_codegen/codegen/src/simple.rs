@@ -8,7 +8,6 @@ pub fn expand(
     maybe_quality_path: Option<proc_macro2::TokenStream>,
 ) -> Result<TokenStream> {
     let rt = pathing::runtime_path().unwrap();
-    // let sattr = attr::parse_struct_attrs(&input.attrs)?;
     let row_indent = &input.ident;
     let vis = input.vis.clone();
     let columns_ident = format_ident!("{}VecColumns", row_indent);
@@ -86,9 +85,19 @@ pub fn expand(
         }
     };
 
+    let filtered_push_body = generate::push_with_config_body(&specs);
+    let impl_filtered = quote! {
+        impl #rt::FilteredPush<#row_path> for #columns_ident {
+            fn push_with_config(&mut self, row: &#row_path, cfg: &#rt::PushConfig) {
+                #filtered_push_body
+            }
+        }
+    };
+
     Ok(quote! {
         #cols_struct
         #impl_bundle
         #impl_row
+        #impl_filtered
     })
 }

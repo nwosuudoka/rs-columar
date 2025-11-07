@@ -1,11 +1,14 @@
+pub mod buffers;
 pub mod encoding;
 pub mod generated;
 pub mod models;
 
+use crate::buffers::smart_pool::SmartBufferPool;
 use crate::encoding::streaming::StreamingEncoder;
-pub use columnar_derive::{Columnar, SimpleColumnar};
+pub use columnar_derive::{Columnar, ColumnarAttrs, SimpleColumnar};
 use core::fmt;
-use std::fs::File;
+use std::collections::HashSet;
+use std::fs::{self, File};
 use std::io::{self, BufWriter};
 use std::{default::Default, path::PathBuf};
 
@@ -35,7 +38,7 @@ pub trait SimpleColumnBundle<Row>: Default {
 }
 
 pub trait StreamingColumnBundle<Row>: Default {
-    fn push(&mut self, row: &Row);
+    fn push(&mut self, row: &Row) -> io::Result<()>;
     fn merge(&mut self, other: Self);
 }
 
@@ -126,10 +129,40 @@ impl<T: Clone> Column<T> {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct PushConfig {
+    allowed_fields: HashSet<String>,
+}
+
+impl PushConfig {
+    /// Creates a new `PushConfig` with the given set of allowed fields.
+    ///
+    /// `fields` is an iterator over values that can be converted to `&str`.
+    /// The resulting `PushConfig` will allow pushing values to fields that are in the set of
+    /// allowed fields, and will forbid pushing to any other fields.
+    pub fn new<I, S>(fields: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let allowed_fields = fields.into_iter().map(|s| s.as_ref().to_string()).collect();
+        Self { allowed_fields }
+    }
+
+    pub fn is_allowed(&self, field: &str) -> bool {
+        self.allowed_fields.contains(field)
+    }
+}
+
+pub trait FilteredPush<Row>: Default {
+    fn push_with_config(&mut self, row: &Row, cfg: &crate::PushConfig);
+}
+
 pub struct StreamColumn<T> {
     path: PathBuf,
     writer: BufWriter<File>,
     encoder: Box<dyn StreamingEncoder<T>>,
+    pool: SmartBufferPool,
     _marker: std::marker::PhantomData<T>,
 }
 
@@ -141,12 +174,21 @@ impl<T> fmt::Debug for StreamColumn<T> {
     }
 }
 
-impl<T> StreamColumn<T> {
+impl<T> StreamColumn<T>
+where
+    T: 'static,
+{
     pub fn new<P: Into<PathBuf>>(
         path: P,
         encoder: Box<dyn StreamingEncoder<T>>,
+        pool: SmartBufferPool,
     ) -> io::Result<Self> {
         let path = path.into();
+
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
         let file = File::create(&path)?;
         let mut writer = BufWriter::new(file);
         encoder.begin_stream(&mut writer)?;
@@ -154,6 +196,7 @@ impl<T> StreamColumn<T> {
             path,
             writer,
             encoder,
+            pool,
             _marker: std::marker::PhantomData,
         })
     }
@@ -162,8 +205,32 @@ impl<T> StreamColumn<T> {
         self.encoder.encode_value(v, &mut self.writer)
     }
 
+    pub fn merge(&mut self, other: Self) -> io::Result<()> {
+        panic!("Not implemented")
+    }
+
     pub fn close(mut self) -> io::Result<()> {
         self.encoder.end_stream(&mut self.writer)
+    }
+}
+
+pub trait IntoColumns {
+    fn to_simple_columns(&self) -> <Self as SimpleColumnar>::Columns
+    where
+        Self: SimpleColumnar,
+    {
+        let mut cols = Self::Columns::default();
+        cols.push(self);
+        cols
+    }
+
+    fn to_streaming_columns(&self) -> <Self as StreamingColumnar>::Columns
+    where
+        Self: StreamingColumnar,
+    {
+        let mut cols = Self::Columns::default();
+        cols.push(self);
+        cols
     }
 }
 
@@ -195,7 +262,9 @@ mod tests {
     #[test]
     fn test_stream_column_write() {
         let tmp = tempfile::NamedTempFile::new().unwrap();
-        let mut col = StreamColumn::new(tmp.path(), Box::new(FixedWidthStreamEncoder)).unwrap();
+        let pool = SmartBufferPool::new(4 * 1024);
+        let mut col =
+            StreamColumn::new(tmp.path(), Box::new(FixedWidthStreamEncoder), pool).unwrap();
         for i in 0..10u64 {
             col.push(&i).unwrap();
         }

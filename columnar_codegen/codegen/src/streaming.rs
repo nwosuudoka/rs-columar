@@ -9,9 +9,9 @@ pub fn expand(
 ) -> Result<TokenStream> {
     let rt = pathing::runtime_path().unwrap();
     let sattr = attr::parse_struct_attrs(&input.attrs)?;
-    let row_indent = &input.ident;
+    let row_ident = &input.ident;
     let vis = input.vis.clone();
-    let columns_ident = format_ident!("{}StreamColumn", row_indent);
+    let columns_ident = format_ident!("{}StreamColumn", row_ident);
 
     let fields = match &input.data {
         Data::Struct(ds) => match &ds.fields {
@@ -57,82 +57,85 @@ pub fn expand(
     let cols_struct =
         generate::make_column_struct(&vis, &columns_ident, &specs, &backend_ty_for, &["Debug"]);
 
-    // let base_path = sattr.base_path.unwrap_or(".".to_string());
+    // 3️⃣ Encoder initialization with optional pool injection
     let inits = specs.iter().filter(|f| !f.fattrs.skip).map(|f| {
         let ci = &f.column_ident;
-        let enc = &f.fattrs.encoder.as_deref().unwrap_or("byte_size");
-        let enc_expr = match enc {
-            &"bitpack" => quote! {
-                #rt::encoders::BitpackEncoder::new(),
-            },
-            &"delta" => quote! {
-                #rt::encoders::DeltaEncoder::new(),
-            },
-            _ => quote! {
-                #rt::encoders::ByteSizeEncoding::new(),
-            },
+        let ty = &f.field_ty;
+        let encoder_name = f.fattrs.encoder.as_deref().unwrap_or("bitpack");
+
+        // Determine if encoder expects a pool argument
+        let (encoder_expr, needs_pool) = match encoder_name {
+            "bitpack" => (
+                quote! { #rt::encoding::BitpackStreamWriter::<#ty>::new },
+                true,
+            ),
+            "string" => (quote! { #rt::encoding::StringStreamEncoder::new }, true),
+            "delta" => (
+                quote! { #rt::encoding::DeltaStreamEncoder::<#ty>::new },
+                false,
+            ),
+            _ => (quote! { compile_error!("Unknown encoder type"); }, false),
         };
 
-        let path_expr = f
-            .fattrs
-            .path
-            .as_deref()
-            .map(|p| quote! {#p})
-            .unwrap_or_else(|| {
-                // let filename = format!("{}.bin", ci);
-                // quote! ( #filename )
-                let filename = format!("{}.bin", ci.to_token_stream());
-                if let Some(base) = &sattr.base_path {
-                    let joined = format!("{}/{}", base.trim_end_matches('/'), filename);
-                    quote! { #joined }
-                } else {
-                    quote! { #filename }
-                }
-            });
+        // Directory-style path: StructName/field.bin
+        let struct_name = row_ident.to_string();
+        let field_name = ci.to_token_stream().to_string().replace(' ', "");
+        let rel_path = format!("{}/{}.bin", struct_name, field_name);
 
-        quote! {
-            #ci: #rt::StreamColumn::new(#path_expr, Box::new(#enc_expr)).unwrap(),
+        let path_expr = if let Some(base) = &sattr.base_path {
+            let joined = format!("{}/{}", base.trim_end_matches('/'), rel_path);
+            quote! { #joined }
+        } else {
+            quote! { #rel_path }
+        };
+
+        // Conditionally add pool
+        if needs_pool {
+            quote! {
+                #ci: #rt::StreamColumn::new(
+                    #path_expr,
+                    Box::new(#encoder_expr(pool.clone())),
+                    pool.clone(),
+                ).unwrap(),
+            }
+        } else {
+            quote! {
+                #ci: #rt::StreamColumn::new(
+                    #path_expr,
+                    Box::new(#encoder_expr()),
+                    #rt::SmartBufferPool::default(),
+                ).unwrap(),
+            }
         }
     });
 
-    let push_body = {
-        let stmts = specs.iter().filter(|f| !f.fattrs.skip).map(|f| {
-            let fi = &f.field_ident;
-            let ci = &f.column_ident;
-            quote! {
-                self.#ci.push(&row.#fi);
-            }
-        });
-        quote! { #(#stmts)* }
-    };
-    let merge_body = {
-        let stmts = specs.iter().filter(|f| !f.fattrs.skip).map(|f| {
-            let ci = &f.column_ident;
-            quote! {
-                self.#ci.merge(other.#ci);
-            }
-        });
-
-        quote! {
-            #(#stmts)*
-        }
-    };
+    let push_body = generate::push_impl_body_stream(&specs);
+    let merge_body = generate::merge_impl_body(&specs);
 
     let impl_default = quote! {
-        impl Default for #columns_ident {
-            fn default() -> Self {
+        impl #columns_ident {
+            fn with_pool(pool: #rt::SmartBufferPool) -> Self {
                 Self {
                     #(#inits)*
                 }
             }
         }
+
+        impl Default for #columns_ident {
+            fn default() -> Self {
+                let pool = #rt::SmartBufferPool::new(64 * 1024);
+                Self::with_pool(pool)
+            }
+        }
     };
 
-    let row_path = maybe_quality_path.unwrap_or_else(|| quote! { #row_indent});
+    let row_path = maybe_quality_path.unwrap_or_else(|| quote! { #row_ident});
     let impl_bundle = quote! {
-        impl #rt::StreamingColumnBundle<#row_indent> for #columns_ident {
-            fn push(&mut self, row: &#row_path) {
+        impl #rt::StreamingColumnBundle<#row_path> for #columns_ident {
+            fn push(&mut self, row: &#row_path) -> std::io::Result<()> {
                 #push_body
+
+                Ok(())
             }
 
             fn merge(&mut self, other: Self) {
@@ -147,10 +150,20 @@ pub fn expand(
         }
     };
 
+    let filtered_push_body = generate::push_with_config_body(&specs);
+    let impl_filtered = quote! {
+        impl #rt::FilteredPush<#row_path> for #columns_ident {
+            fn push_with_config(&mut self, row: &#row_path, cfg: &#rt::PushConfig) {
+                #filtered_push_body
+            }
+        }
+    };
+
     Ok(quote! {
         #cols_struct
         #impl_default
         #impl_bundle
         #impl_row
+        #impl_filtered
     })
 }

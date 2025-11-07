@@ -1,4 +1,5 @@
-use quote::quote;
+use proc_macro2::Span;
+use quote::{ToTokens, quote};
 use syn::{Ident, Path, Type};
 
 pub struct FieldSpec {
@@ -6,6 +7,17 @@ pub struct FieldSpec {
     pub field_ty: Type,
     pub column_ident: Path,
     pub fattrs: crate::attr::FieldAttrs,
+}
+
+impl FieldSpec {
+    pub fn column_ident_ident(&self) -> Ident {
+        // format_ident!("{}", self.column_ident.segments.first().unwrap().ident)
+        if let Some(seg) = self.column_ident.segments.last() {
+            seg.ident.clone()
+        } else {
+            Ident::new("_unknown", Span::call_site())
+        }
+    }
 }
 
 /// Generates a struct definition for a columnar struct, given
@@ -69,6 +81,21 @@ pub fn push_impl_body(fields: &[FieldSpec]) -> proc_macro2::TokenStream {
     }
 }
 
+pub fn push_impl_body_stream(fields: &[FieldSpec]) -> proc_macro2::TokenStream {
+    let stmts = fields.iter().filter(|f| !f.fattrs.skip).map(|f| {
+        let fi = &f.field_ident;
+        let ci = &f.column_ident;
+        quote! {
+            self.#ci.push(&row.#fi.clone())?;
+        }
+    });
+
+    quote! {
+        #(#stmts)*
+    }
+}
+
+// When you add a new backend, provide a new backend_ty_for() function that maps a field to a runtime type (e.g., Vec<T>, Column<T>, StreamColumn<T>).
 pub fn merge_impl_body(fields: &[FieldSpec]) -> proc_macro2::TokenStream {
     let stmts = fields.iter().filter(|f| !f.fattrs.skip).map(|f| {
         let ci = &f.column_ident;
@@ -81,4 +108,18 @@ pub fn merge_impl_body(fields: &[FieldSpec]) -> proc_macro2::TokenStream {
     }
 }
 
-// When you add a new backend, provide a new backend_ty_for() function that maps a field to a runtime type (e.g., Vec<T>, Column<T>, StreamColumn<T>).
+pub fn push_with_config_body(fields: &[FieldSpec]) -> proc_macro2::TokenStream {
+    let stmts = fields.iter().filter(|f| !f.fattrs.skip).map(|f| {
+        let fi = &f.field_ident;
+        let ci = &f.column_ident;
+        let name_str = f.field_ident.to_string();
+        quote! {
+            if cfg.is_allowed(#name_str) {
+                self.#ci.push(&row.#fi.clone());
+            }
+        }
+    });
+    quote! {
+        #(#stmts)*
+    }
+}

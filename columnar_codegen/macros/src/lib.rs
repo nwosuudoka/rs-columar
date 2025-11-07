@@ -27,3 +27,12 @@ pub fn derive_streaming_columnar(input: TokenStream) -> TokenStream {
         Err(err) => err.to_compile_error().into(),
     }
 }
+
+/// Derive that only *declares* the `columnar` helper attribute so the
+/// compiler accepts `#[columnar(...)]` on the struct and fields.
+/// It generates **no code** and therefore won't conflict with builder output.
+#[proc_macro_derive(ColumnarAttrs, attributes(columnar))]
+pub fn derive_columnar_attrs(input: TokenStream) -> TokenStream {
+    let _ = parse_macro_input!(input as DeriveInput);
+    TokenStream::new()
+}

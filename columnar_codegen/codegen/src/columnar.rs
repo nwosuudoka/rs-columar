@@ -1,4 +1,4 @@
-use crate::{attr, fields::FieldSpec, pathing};
+use crate::{attr, fields::FieldSpec, generate, pathing};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::{Data, DeriveInput, Fields, Result, spanned::Spanned};
@@ -47,17 +47,17 @@ pub fn expand(
                 .unwrap_or_else(|| field_ident.to_string())
         );
 
-        specs.push(FieldSpec {
+        specs.push(generate::FieldSpec {
             field_ident,
             field_ty,
-            column_ident,
-            attrs,
+            column_ident: column_ident.into(),
+            fattrs: attrs,
         });
     }
 
     let column_fields = specs
         .iter()
-        .filter(|spec| !spec.attrs.skip)
+        .filter(|spec| !spec.fattrs.skip)
         .map(|spec| {
             let column_ident = &spec.column_ident;
             let field_ty = &spec.field_ty;
@@ -68,7 +68,7 @@ pub fn expand(
 
     let push_body = specs
         .iter()
-        .filter(|spec| !spec.attrs.skip)
+        .filter(|spec| !spec.fattrs.skip)
         .map(|spec| {
             let field_ident = &spec.field_ident;
             let column_ident = &spec.column_ident;
@@ -78,7 +78,7 @@ pub fn expand(
 
     let merge_body = specs
         .iter()
-        .filter(|spec| !spec.attrs.skip)
+        .filter(|spec| !spec.fattrs.skip)
         .map(|spec| {
             let column_ident = &spec.column_ident;
             quote! { self.#column_ident.extend_from(&other.#column_ident); }
@@ -87,7 +87,7 @@ pub fn expand(
 
     let set_chunk_body = specs
         .iter()
-        .filter(|spec| !spec.attrs.skip)
+        .filter(|spec| !spec.fattrs.skip)
         .map(|spec| {
             let column_ident = &spec.column_ident;
             quote! { self.#column_ident = std::mem::take(&mut self.#column_ident).with_chunk_size(n); }
@@ -97,7 +97,7 @@ pub fn expand(
     let chunk_size_impl = if let Some(chunk_size) = struct_attrs.chunk_size {
         let init_fields = specs
             .iter()
-            .filter(|spec| !spec.attrs.skip)
+            .filter(|spec| !spec.fattrs.skip)
             .map(|spec| {
                 let column_ident = &spec.column_ident;
                 let runtime = runtime.clone();
@@ -123,6 +123,8 @@ pub fn expand(
     };
 
     let row_path = maybe_quality_path.unwrap_or_else(|| quote! { #row_ident});
+    let filtered_push_body = generate::push_with_config_body(&specs);
+
     Ok(quote! {
         #struct_decl_if_needed
         #chunk_size_impl
@@ -141,8 +143,14 @@ pub fn expand(
             }
         }
 
-        impl #runtime::Columnar<#runtime::modes::Chunked> for #row_path {
+        impl #runtime::Columnar for #row_path {
             type Columns = #columns_ident;
+        }
+
+        impl #runtime::FilteredPush<#row_path> for #columns_ident {
+            fn push_with_config(&mut self, row: &#row_path, cfg: &#runtime::PushConfig) {
+                #filtered_push_body
+            }
         }
     })
 }
