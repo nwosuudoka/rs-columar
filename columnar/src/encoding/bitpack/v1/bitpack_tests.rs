@@ -35,17 +35,15 @@ mod tests {
             assert_eq!(values, &decoded[..]);
         }
 
-        // roundtrip(&[0u8, 1, 2, 3, 4, 5, 255]);
-        // roundtrip(&[0u16, 42, 65535]);
-        // roundtrip(&[0u32, 1_000, 100_000]);
-        // roundtrip(&[0i8, -1, 1, -5, 5, i8::MIN + 1, i8::MAX]);
-        // roundtrip(&[0i16, -1234, 1234, i16::MIN + 1, i16::MAX]);
-        // roundtrip(&[0i32, -1_000_000, 1_000_000]);
-        // roundtrip(&[0i64, -10_000_000_000, 10_000_000_000]);
-        // roundtrip(&[0i64, 1, (i64::MAX / 3)]);
-        // roundtrip(&[0u64, 1, (u64::MAX / 3)]);
+        roundtrip(&[0u8, 1, 2, 3, 4, 5, 255]);
+        roundtrip(&[0u16, 42, 65535]);
+        roundtrip(&[0u32, 1_000, 100_000]);
+        roundtrip(&[0i8, -1, 1, -5, 5, i8::MIN + 1, i8::MAX]);
+        roundtrip(&[0i16, -1234, 1234, i16::MIN + 1, i16::MAX]);
+        roundtrip(&[0i32, -1_000_000, 1_000_000]);
+        roundtrip(&[0i64, -10_000_000_000, 10_000_000_000]);
         roundtrip(&[0i64, 1, (i64::MAX / 2), 3]); // investigate this large number
-        // roundtrip(&[0i64, 1, (u64::MAX / 2), 3]); // investigate this large number
+        roundtrip(&[0u64, 1, (u64::MAX / 2), 3]); // investigate this large number
     }
 
     #[test]

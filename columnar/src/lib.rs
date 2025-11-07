@@ -224,13 +224,13 @@ pub trait IntoColumns {
         cols
     }
 
-    fn to_streaming_columns(&self) -> <Self as StreamingColumnar>::Columns
+    fn to_streaming_columns(&self) -> io::Result<<Self as StreamingColumnar>::Columns>
     where
         Self: StreamingColumnar,
     {
         let mut cols = Self::Columns::default();
-        cols.push(self);
-        cols
+        cols.push(self)?;
+        Ok(cols)
     }
 }
 

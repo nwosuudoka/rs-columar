@@ -53,7 +53,7 @@ impl<W: Write, T: BitEncodable> BitWriter<W, T> {
                 let mask = if chunk_size == 64 {
                     u64::MAX
                 } else {
-                    (1 << chunk_size) - 1
+                    (1 << chunk_size) - 1u64
                 };
 
                 // Add the next chunk of bits from the value into our buffer.

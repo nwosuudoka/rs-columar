@@ -123,3 +123,19 @@ pub fn push_with_config_body(fields: &[FieldSpec]) -> proc_macro2::TokenStream {
         #(#stmts)*
     }
 }
+
+pub fn push_with_config_body_stream(fields: &[FieldSpec]) -> proc_macro2::TokenStream {
+    let stmts = fields.iter().filter(|f| !f.fattrs.skip).map(|f| {
+        let fi = &f.field_ident;
+        let ci = &f.column_ident;
+        let name_str = f.field_ident.to_string();
+        quote! {
+            if cfg.is_allowed(#name_str) {
+                self.#ci.push(&row.#fi.clone())?;
+            }
+        }
+    });
+    quote! {
+        #(#stmts)*
+    }
+}

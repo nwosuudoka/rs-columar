@@ -1,10 +1,12 @@
 use crate::encoding::bitpack::v1::common::BitEncodable;
 use std::io::{self, Read};
 
+const BUF_SIZE: usize = 512;
+
 /// Reads bit-packed integers from any `Read`.
 pub struct BitReader<R: Read> {
     reader: R,
-    buf: [u8; 8192],
+    buf: [u8; BUF_SIZE],
     pos: usize,
     end: usize,
     bits: u64,
@@ -15,7 +17,7 @@ impl<R: Read> BitReader<R> {
     pub fn new(reader: R) -> Self {
         Self {
             reader,
-            buf: [0; 8192],
+            buf: [0; BUF_SIZE],
             pos: 0,
             end: 0,
             bits: 0,
@@ -23,41 +25,7 @@ impl<R: Read> BitReader<R> {
         }
     }
 
-    #[inline(always)]
-    fn ensure_bits(&mut self, need: u8) -> io::Result<()> {
-        while self.bit_count < need {
-            if self.pos == self.end {
-                self.end = self.reader.read(&mut self.buf)?;
-                self.pos = 0;
-
-                if self.end == 0 {
-                    // We've reached EOF and still don't have enough bits
-                    if self.bit_count < need {
-                        return Err(io::Error::new(
-                            io::ErrorKind::UnexpectedEof,
-                            "not enough bits",
-                        ));
-                    }
-                    break;
-                }
-            }
-
-            let next_byte = self.buf[self.pos];
-            self.pos += 1;
-
-            // Add the new byte to our bit buffer
-            self.bits |= (next_byte as u64) << self.bit_count;
-            self.bit_count += 8;
-
-            // CRITICAL FIX: Clear any bits beyond our current count to prevent
-            // garbage data from affecting future reads
-            if self.bit_count < 64 {
-                self.bits &= (1u64 << self.bit_count) - 1;
-            }
-        }
-        Ok(())
-    }
-
+    /// Reads `width` bits from the stream. `width` must be <= 64.
     pub fn read_bits(&mut self, width: u8) -> io::Result<u64> {
         if width == 0 {
             return Ok(0);
@@ -69,26 +37,60 @@ impl<R: Read> BitReader<R> {
             ));
         }
 
-        self.ensure_bits(width)?;
-
-        let mask = if width == 64 {
-            u64::MAX
-        } else {
-            (1u64 << width) - 1
-        };
-
-        let val = self.bits & mask;
-        self.bits >>= width;
-        self.bit_count -= width;
-
-        // Clear any potential garbage in higher bits after shifting
-        if self.bit_count > 0 && self.bit_count < 64 {
-            self.bits &= (1u64 << self.bit_count) - 1;
-        } else if self.bit_count == 0 {
-            self.bits = 0;
+        // Fast path: if we already have enough bits in the buffer.
+        if self.bit_count >= width {
+            let mask = if width == 64 {
+                u64::MAX
+            } else {
+                (1u64 << width) - 1
+            };
+            let val = self.bits & mask;
+            self.bits >>= width;
+            self.bit_count -= width;
+            return Ok(val);
         }
 
-        Ok(val)
+        // Not enough bits. Assemble the result piece by piece.
+        // Start with the bits we already have.
+        let mut result = self.bits;
+        let mut bits_read = self.bit_count;
+
+        // Clear the buffer since we've consumed it.
+        self.bits = 0;
+        self.bit_count = 0;
+
+        // Read bytes from the underlying reader until we have enough bits.
+        while bits_read < width {
+            if self.pos == self.end {
+                self.end = self.reader.read(&mut self.buf)?;
+                self.pos = 0;
+                if self.end == 0 {
+                    // We hit EOF but didn't get enough bits for the requested width.
+                    return Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "not enough bits",
+                    ));
+                }
+            }
+
+            let next_byte = self.buf[self.pos] as u64;
+            self.pos += 1;
+
+            let bits_needed = width - bits_read;
+            let bits_from_byte = bits_needed.min(8);
+
+            // Append the needed bits from the new byte to our result.
+            result |= (next_byte & ((1u64 << bits_from_byte) - 1)) << bits_read;
+            bits_read += bits_from_byte;
+
+            // If we didn't use the whole byte, put the remainder in the buffer
+            // for the next read.
+            if bits_from_byte < 8 {
+                self.bit_count = 8 - bits_from_byte;
+                self.bits = next_byte >> bits_from_byte;
+            }
+        }
+        Ok(result)
     }
 
     pub fn read_value<T: BitEncodable>(&mut self, width: u8) -> io::Result<T> {

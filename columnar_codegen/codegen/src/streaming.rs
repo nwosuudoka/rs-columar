@@ -134,7 +134,6 @@ pub fn expand(
         impl #rt::StreamingColumnBundle<#row_path> for #columns_ident {
             fn push(&mut self, row: &#row_path) -> std::io::Result<()> {
                 #push_body
-
                 Ok(())
             }
 
@@ -150,11 +149,12 @@ pub fn expand(
         }
     };
 
-    let filtered_push_body = generate::push_with_config_body(&specs);
+    let filtered_push_body = generate::push_with_config_body_stream(&specs);
     let impl_filtered = quote! {
         impl #rt::FilteredPush<#row_path> for #columns_ident {
-            fn push_with_config(&mut self, row: &#row_path, cfg: &#rt::PushConfig) {
+            fn push_with_config(&mut self, row: &#row_path, cfg: &#rt::PushConfig) -> io::Result<()> {
                 #filtered_push_body
+                Ok(())
             }
         }
     };
