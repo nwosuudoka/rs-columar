@@ -1,0 +1,11 @@
+[package]
+name = "thirdparty"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+tokio-macros = "2.6.0"
+aws-sdk-s3 = "1.108.0"
+aws-config = { version = "1.0.1", features = ["behavior-version-latest"] }
+csv = "1.2.1"

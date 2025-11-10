@@ -34,30 +34,11 @@ pub fn expand(
         }
     };
 
-    // let mut specs = Vec::<generate::FieldSpec>::new();
-    // for f in fields {
-    //     let field_ident = f.ident.unwrap();
-    //     let fattrs = attr::parse_field_attrs(&f.attrs)?;
-    //     let field_ty = f.ty;
-    //     let col_name = fattrs
-    //         .rename
-    //         .clone()
-    //         .unwrap_or_else(|| field_ident.to_string());
-    //     let column_ident = format_ident!("{}", col_name);
-    //     specs.push(generate::FieldSpec {
-    //         field_ident: field_ident.clone(),
-    //         field_ty,
-    //         column_ident: column_ident.into(),
-    //         fattrs,
-    //     });
-    // }
     let specs = get_specs(&fields);
-
     let backend_ty_for = |fs: &generate::FieldSpec| {
         let ty = &fs.field_ty;
         quote! { #rt::StreamColumn<#ty> }
     };
-
     let cols_struct =
         generate::make_column_struct(&vis, &columns_ident, &specs, &backend_ty_for, &["Debug"]);
 
@@ -93,35 +74,7 @@ pub fn expand(
             quote! { #rel_path }
         };
 
-        // let index_expr = if f.fattrs.index {
-        //     let index_type = f.fattrs.index_type.as_deref().unwrap();
-        //     let rel_index_path = format!("{}/{}.idx", struct_name, field_name);
-        //     let index_path_expr = if let Some(index_path) = &f.fattrs.index_path {
-        //         quote! { #index_path }
-        //     } else if let Some(base) = &sattr.base_path {
-        //         let joined = format!("{}/{}", base.trim_end_matches('/'), rel_index_path);
-        //         quote! { #joined }
-        //     } else {
-        //         quote! { #rel_index_path }
-        //     };
-
-        //     match index_type {
-        //         "doc_index" => quote! {
-        //             Some(Box::new(#rt::indexing::DocIndex::new(#index_path_expr)) as Box<dyn #rt::FieldIndex<#ty>>)
-        //         },
-        //         "categorical" => quote! {
-        //             Some(Box::new(#rt::indexing::Categorial::new(#index_path_expr)) as Box<dyn #rt::FieldIndex<#ty>>)
-        //         },
-        //         _ =>
-        //             quote! {
-        //                 compile_error!("Unknown index type")
-        //              }
-        //     }
-        // } else {
-        //     quote! { None }
-        // };
         let index_expr = get_index_expr(f, &struct_name, &field_name, sattr.clone(), rt.clone());
-
         // Conditionally add pool
         if needs_pool {
             quote! {
@@ -129,7 +82,8 @@ pub fn expand(
                     #path_expr,
                     pool.clone(),
                     Box::new(#encoder_expr(pool.clone())),
-                    #index_expr
+                    #index_expr,
+                    temp_dir.clone(),
                 ).unwrap(),
             }
         } else {
@@ -138,30 +92,32 @@ pub fn expand(
                     #path_expr,
                     #rt::SmartBufferPool::default(),
                     Box::new(#encoder_expr()),
-                    #index_expr
+                    #index_expr,
+                    temp_dir.clone(),
                 ).unwrap(),
             }
         }
     });
 
     let push_body = generate::push_impl_body_stream(&specs);
-    let merge_body = generate::merge_impl_body(&specs);
+    // let merge_body = generate::merge_impl_body(&specs);
 
     let impl_default = quote! {
         impl #columns_ident {
-            fn with_pool(pool: #rt::SmartBufferPool) -> Self {
+            fn with_pool(pool: #rt::SmartBufferPool, temp_dir: std::path::PathBuf) -> Self {
                 Self {
                     #(#inits)*
                 }
             }
         }
 
-        impl Default for #columns_ident {
-            fn default() -> Self {
-                let pool = #rt::SmartBufferPool::new(64 * 1024);
-                Self::with_pool(pool)
-            }
-        }
+        // impl Default for #columns_ident {
+        //     fn default() -> Self {
+        //         let pool = #rt::SmartBufferPool::new(64 * 1024);
+        //         let path = #rt::TempDir::new().unwrap().path().clone();
+        //         Self::with_pool(pool, path)
+        //     }
+        // }
     };
 
     let row_path = maybe_quality_path.unwrap_or_else(|| quote! { #row_ident});
@@ -170,10 +126,6 @@ pub fn expand(
             fn push(&mut self, row: &#row_path) -> std::io::Result<()> {
                 #push_body
                 Ok(())
-            }
-
-            fn merge(&mut self, other: Self) {
-                #merge_body
             }
         }
     };
@@ -187,7 +139,7 @@ pub fn expand(
     let filtered_push_body = generate::push_with_config_body_stream(&specs);
     let impl_filtered = quote! {
         impl #rt::FilteredPush<#row_path> for #columns_ident {
-            fn push_with_config(&mut self, row: &#row_path, cfg: &#rt::PushConfig) -> io::Result<()> {
+            fn push_with_config(&mut self, row: &#row_path, cfg: &#rt::PushConfig) -> std::io::Result<()> {
                 #filtered_push_body
                 Ok(())
             }
@@ -248,10 +200,10 @@ fn get_index_expr(
 
         match index_type {
             "doc_index" => quote! {
-                Some(Box::new(#rt::indexing::DocIndex::new(#index_path_expr)) as Box<dyn #rt::FieldIndex<#ty>>)
+                Some(Box::new(#rt::indexing::DocIndex::new(temp_dir, #index_path_expr)) as Box<dyn #rt::FieldIndex<#ty>>)
             },
             "categorical" => quote! {
-                Some(Box::new(#rt::indexing::Categorial::new(#index_path_expr)) as Box<dyn #rt::FieldIndex<#ty>>)
+                Some(Box::new(#rt::indexing::Categorial::new(temp_dir, #index_path_expr)) as Box<dyn #rt::FieldIndex<#ty>>)
             },
             _ => quote! {
             compile_error!("Unknown index type")

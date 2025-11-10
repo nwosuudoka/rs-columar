@@ -14,3 +14,4 @@ pub use columnar_derive::{Columnar, ColumnarAttrs, SimpleColumnar};
 pub use filtered_push::*;
 pub use simple::*;
 pub use stream::*;
+pub use tempfile::TempDir;

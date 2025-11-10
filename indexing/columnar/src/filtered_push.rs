@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, io};
 
 #[derive(Debug, Clone)]
 pub struct PushConfig {
@@ -25,6 +25,6 @@ impl PushConfig {
     }
 }
 
-pub trait FilteredPush<Row>: Default {
-    fn push_with_config(&mut self, row: &Row, cfg: &crate::PushConfig);
+pub trait FilteredPush<Row> {
+    fn push_with_config(&mut self, row: &Row, cfg: &crate::PushConfig) -> io::Result<()>;
 }

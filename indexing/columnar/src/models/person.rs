@@ -1,4 +1,4 @@
-use columnar_derive::ColumnarAttrs;
+use columnar_derive::{ColumnarAttrs, StreamingColumnar};
 
 #[derive(ColumnarAttrs)]
 #[columnar(base_path = "data/out")]

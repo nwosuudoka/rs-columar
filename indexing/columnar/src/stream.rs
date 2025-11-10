@@ -12,6 +12,7 @@ pub struct StreamColumn<T> {
     pool: SmartBufferPool,
     index: Option<Box<dyn FieldIndex<T>>>,
     row_pos: usize,
+    temp_dir: PathBuf,
 }
 
 impl<T> fmt::Debug for StreamColumn<T> {
@@ -36,6 +37,7 @@ where
         pool: SmartBufferPool,
         encoder: Box<dyn StreamingEncoder<T>>,
         index: Option<Box<dyn FieldIndex<T>>>,
+        temp_dir: PathBuf,
     ) -> io::Result<Self> {
         let path = path.into();
 
@@ -53,6 +55,7 @@ where
             pool,
             row_pos: 0,
             index,
+            temp_dir,
         })
     }
 
@@ -74,9 +77,8 @@ where
     }
 }
 
-pub trait StreamingColumnBundle<Row>: Default {
+pub trait StreamingColumnBundle<Row> {
     fn push(&mut self, row: &Row) -> io::Result<()>;
-    fn merge(&mut self, other: Self);
 }
 
 pub trait StreamingColumnar: Sized {

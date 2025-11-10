@@ -1,4 +1,7 @@
-use crate::encoding::{StreamingEncoder, strings::doc_writer::DocWriter};
+use crate::encoding::{
+    StreamingEncoder,
+    strings::{common::process_string, doc_writer::DocWriter},
+};
 use fastbloom::BloomFilter;
 use std::cell::RefCell;
 use std::io;
@@ -89,10 +92,6 @@ impl StreamingEncoder<String> for DocStreamWriter {
         writer.write_all(&header)?;
         Ok(())
     }
-}
-
-fn process_string(s: &str) -> Vec<u64> {
-    s.split(" ").map(|s| xxh3::xxh3_64(s.as_bytes())).collect()
 }
 
 fn encode_vec_64(writer: &mut dyn std::io::Write, vec: &[u64]) -> io::Result<()> {

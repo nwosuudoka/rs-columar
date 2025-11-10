@@ -48,62 +48,58 @@ fn zigzag_decode_u64(u: u64) -> i64 {
 /* ---------- Unsigned impls: identity encode/decode ---------- */
 
 macro_rules! impl_bitencodable_unsigned {
-    ($t:ty) => {
-        impl BitEncodable for $t {
-            const BITS: u32 = (size_of::<$t>() as u32) * 8;
-            const MIN: $t = <$t>::MIN;
-            const MAX: $t = <$t>::MAX;
+    ($($t:ty),*) => {
+        $(
+            impl BitEncodable for $t {
+                const BITS: u32 = (size_of::<$t>() as u32) * 8;
+                const MIN: $t = <$t>::MIN;
+                const MAX: $t = <$t>::MAX;
 
-            #[inline(always)]
-            fn encode(self) -> u64 {
-                self as u64
-            }
+                #[inline(always)]
+                fn encode(self) -> u64 {
+                    self as u64
+                }
 
-            #[inline(always)]
-            fn decode(payload: u64) -> Self {
-                // Mask to the destination width and cast back
-                (payload & Self::mask()) as $t
+                #[inline(always)]
+                fn decode(payload: u64) -> Self {
+                    // Mask to the destination width and cast back
+                    (payload & Self::mask()) as $t
+                }
             }
-        }
+        )*
     };
 }
 
-impl_bitencodable_unsigned!(u8);
-impl_bitencodable_unsigned!(u16);
-impl_bitencodable_unsigned!(u32);
-impl_bitencodable_unsigned!(u64);
-impl_bitencodable_unsigned!(usize);
+impl_bitencodable_unsigned!(u8, u16, u32, u64, usize);
 
 /* ---------- Signed impls: ZigZag encode/decode ---------- */
 
 macro_rules! impl_bitencodable_signed {
-    ($t:ty) => {
-        impl BitEncodable for $t {
-            const BITS: u32 = (size_of::<$t>() as u32) * 8;
-            const MIN: $t = <$t>::MIN;
-            const MAX: $t = <$t>::MAX;
+    ($($t:ty),*) => {
+        $(
+            impl BitEncodable for $t {
+                const BITS: u32 = (size_of::<$t>() as u32) * 8;
+                const MIN: $t = <$t>::MIN;
+                const MAX: $t = <$t>::MAX;
 
-            #[inline(always)]
-            fn encode(self) -> u64 {
-                // width-aware ZigZag (so i8/i16/etc. don’t pay 64-bit sign cost)
-                zigzag_encode_width_aware(self as i64, Self::BITS)
-            }
+                #[inline(always)]
+                fn encode(self) -> u64 {
+                    // width-aware ZigZag (so i8/i16/etc. don’t pay 64-bit sign cost)
+                    zigzag_encode_width_aware(self as i64, Self::BITS)
+                }
 
-            #[inline(always)]
-            fn decode(payload: u64) -> Self {
-                // Only look at the bits that belong to this type
-                let u = payload & Self::mask();
-                zigzag_decode_u64(u) as $t
+                #[inline(always)]
+                fn decode(payload: u64) -> Self {
+                    // Only look at the bits that belong to this type
+                    let u = payload & Self::mask();
+                    zigzag_decode_u64(u) as $t
+                }
             }
-        }
+    )*
     };
 }
 
-impl_bitencodable_signed!(i8);
-impl_bitencodable_signed!(i16);
-impl_bitencodable_signed!(i32);
-impl_bitencodable_signed!(i64);
-impl_bitencodable_signed!(isize);
+impl_bitencodable_signed!(i8, i16, i32, i64, isize);
 
 /* ---------- Helpers you can reuse with any BitEncodable ---------- */
 

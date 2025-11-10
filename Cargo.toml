@@ -4,6 +4,6 @@ members = [
     "indexing/columnar_codegen/codegen",
     "indexing/columnar_codegen/macros",
     "indexing/columnar_codegen/builder",
-    "indexing/toolkit/",
+    "indexing/toolkit/", "indexing/thirdparty",
 ]
 resolver = "3"
